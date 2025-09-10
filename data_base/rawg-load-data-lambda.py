@@ -43,11 +43,20 @@ def get_conn():
         ssl_context=True,
     )
 
+# =========================
+# SQLs (con blindaje de tipo)
+# =========================
 
 # Dimensiones
 SQL_DIM_ESRB = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.esrb_ratings (esrb_rating_id, name, slug)
 SELECT DISTINCT
   (g->'esrb_rating'->>'id')::int,
@@ -63,14 +72,22 @@ SET name = EXCLUDED.name, slug = EXCLUDED.slug;
 
 SQL_DIM_PLATFORMS = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload),
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+),
 plats AS (
   SELECT DISTINCT
     (p->'platform'->>'id')::int AS platform_id,
     p->'platform'->>'name'      AS name,
     p->'platform'->>'slug'      AS slug
   FROM games
-  CROSS JOIN LATERAL jsonb_array_elements(g->'platforms') AS p
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(g->'platforms') = 'array' THEN g->'platforms' ELSE '[]'::jsonb END
+  ) AS p
 )
 INSERT INTO public.platforms (platform_id, name, slug)
 SELECT platform_id, name, slug FROM plats
@@ -80,14 +97,22 @@ SET name = EXCLUDED.name, slug = EXCLUDED.slug;
 
 SQL_DIM_GENRES = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload),
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+),
 gs AS (
   SELECT DISTINCT
     (x->>'id')::int AS genre_id,
-    x->>'name'     AS name,
-    x->>'slug'     AS slug
+    x->>'name'      AS name,
+    x->>'slug'      AS slug
   FROM games
-  CROSS JOIN LATERAL jsonb_array_elements(g->'genres') AS x
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(g->'genres') = 'array' THEN g->'genres' ELSE '[]'::jsonb END
+  ) AS x
 )
 INSERT INTO public.genres (genre_id, name, slug)
 SELECT genre_id, name, slug FROM gs
@@ -97,7 +122,13 @@ SET name = EXCLUDED.name, slug = EXCLUDED.slug;
 
 SQL_DIM_STORES = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload),
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+),
 st AS (
   SELECT DISTINCT
     (s->'store'->>'id')::int AS store_id,
@@ -105,7 +136,9 @@ st AS (
     s->'store'->>'slug'      AS slug,
     s->'store'->>'domain'    AS domain
   FROM games
-  CROSS JOIN LATERAL jsonb_array_elements(g->'stores') AS s
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(g->'stores') = 'array' THEN g->'stores' ELSE '[]'::jsonb END
+  ) AS s
 )
 INSERT INTO public.stores (store_id, name, slug, domain)
 SELECT store_id, name, slug, domain FROM st
@@ -117,14 +150,22 @@ SET name = EXCLUDED.name,
 
 SQL_DIM_TAGS = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload),
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+),
 tg AS (
   SELECT DISTINCT
     (t->>'id')::int AS tag_id,
-    t->>'name'     AS name,
-    t->>'slug'     AS slug
+    t->>'name'      AS name,
+    t->>'slug'      AS slug
   FROM games
-  CROSS JOIN LATERAL jsonb_array_elements(g->'tags') AS t
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(g->'tags') = 'array' THEN g->'tags' ELSE '[]'::jsonb END
+  ) AS t
 )
 INSERT INTO public.tags (tag_id, name, slug)
 SELECT tag_id, name, slug FROM tg
@@ -135,7 +176,13 @@ SET name = EXCLUDED.name, slug = EXCLUDED.slug;
 # Tabla principal
 SQL_GAMES = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.games (
   game_id, slug, name, released, tba, rating, rating_top, ratings_count,
   reviews_text_count, metacritic, playtime, suggestions_count, updated,
@@ -189,7 +236,13 @@ ON CONFLICT (game_id) DO UPDATE SET
 # Puentes N:M
 SQL_GAME_PLATFORMS = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.game_platforms
   (game_id, platform_id, released_at, requirements_min, requirements_rec)
 SELECT
@@ -199,7 +252,9 @@ SELECT
   COALESCE(p->'requirements'->>'minimum',    p->'requirements_en'->>'minimum'),
   COALESCE(p->'requirements'->>'recommended', p->'requirements_en'->>'recommended')
 FROM games
-CROSS JOIN LATERAL jsonb_array_elements(g->'platforms') AS p
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(g->'platforms') = 'array' THEN g->'platforms' ELSE '[]'::jsonb END
+) AS p
 ON CONFLICT (game_id, platform_id) DO UPDATE SET
   released_at      = EXCLUDED.released_at,
   requirements_min = EXCLUDED.requirements_min,
@@ -208,52 +263,85 @@ ON CONFLICT (game_id, platform_id) DO UPDATE SET
 
 SQL_GAME_GENRES = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.game_genres (game_id, genre_id)
 SELECT DISTINCT
   (g->>'id')::int,
   (x->>'id')::int
 FROM games
-CROSS JOIN LATERAL jsonb_array_elements(g->'genres') AS x
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(g->'genres') = 'array' THEN g->'genres' ELSE '[]'::jsonb END
+) AS x
 ON CONFLICT DO NOTHING;
 """
 
 SQL_GAME_STORES = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.game_stores (game_id, store_id)
 SELECT DISTINCT
   (g->>'id')::int,
   (s->'store'->>'id')::int
 FROM games
-CROSS JOIN LATERAL jsonb_array_elements(g->'stores') AS s
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(g->'stores') = 'array' THEN g->'stores' ELSE '[]'::jsonb END
+) AS s
 ON CONFLICT DO NOTHING;
 """
 
 SQL_GAME_TAGS = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.game_tags (game_id, tag_id)
 SELECT DISTINCT
   (g->>'id')::int,
   (t->>'id')::int
 FROM games
-CROSS JOIN LATERAL jsonb_array_elements(g->'tags') AS t
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(g->'tags') = 'array' THEN g->'tags' ELSE '[]'::jsonb END
+) AS t
 ON CONFLICT DO NOTHING;
 """
 
+# Hijas 1:N
 SQL_GAME_RATINGS = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload),
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+),
 rts AS (
   SELECT
-    (g->>'id')::int                 AS game_id,
-    (r->>'id')                      AS rid_txt,
-    r->>'title'                     AS title,
-    r->>'count'                     AS count_txt,
-    r->>'percent'                   AS percent_txt
+    (g->>'id')::int AS game_id,
+    (r->>'id')      AS rid_txt,
+    r->>'title'     AS title,
+    r->>'count'     AS count_txt,
+    r->>'percent'   AS percent_txt
   FROM games
-  CROSS JOIN LATERAL jsonb_array_elements(g->'ratings') AS r
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(g->'ratings') = 'array' THEN g->'ratings' ELSE '[]'::jsonb END
+  ) AS r
 )
 INSERT INTO public.game_ratings_breakdown (game_id, rating_id, title, count, percent)
 SELECT
@@ -270,10 +358,15 @@ SET title = EXCLUDED.title,
     percent = EXCLUDED.percent;
 """
 
-
 SQL_GAME_SCREENSHOTS = """
 WITH payload AS (SELECT %s::jsonb AS j),
-games AS (SELECT jsonb_array_elements(j->'results') AS g FROM payload)
+games AS (
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
+  FROM payload
+)
 INSERT INTO public.game_screenshots
   (game_id, screenshot_id, image)
 SELECT
@@ -281,7 +374,10 @@ SELECT
   (s->>'id')::int,
   s->>'image'
 FROM games
-CROSS JOIN LATERAL jsonb_array_elements(g->'short_screenshots') AS s
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(g->'short_screenshots') = 'array'
+       THEN g->'short_screenshots' ELSE '[]'::jsonb END
+) AS s
 ON CONFLICT (game_id, screenshot_id) DO UPDATE SET
   image = EXCLUDED.image;
 """
@@ -289,7 +385,10 @@ ON CONFLICT (game_id, screenshot_id) DO UPDATE SET
 SQL_GAME_ADDED_STATUS = """
 WITH payload AS (SELECT %s::jsonb AS j),
 games AS (
-  SELECT jsonb_array_elements(j->'results') AS g
+  SELECT jsonb_array_elements(
+           CASE WHEN jsonb_typeof(j->'results') = 'array'
+                THEN j->'results' ELSE '[]'::jsonb END
+         ) AS g
   FROM payload
 ),
 valid AS (
@@ -297,17 +396,17 @@ valid AS (
   FROM games
   WHERE g ? 'added_by_status'
     AND jsonb_typeof(g->'added_by_status') = 'object'
-)
-, kv AS (
+),
+kv AS (
   SELECT
-    (g->>'id')::int        AS game_id,
-    each.key               AS status_key,
-    CASE
-      WHEN jsonb_typeof(each.value) = 'number' THEN (each.value)::int
-      ELSE NULL
-    END                    AS count
+    (g->>'id')::int AS game_id,
+    each.key        AS status_key,
+    CASE WHEN jsonb_typeof(each.value) = 'number' THEN (each.value)::int ELSE NULL END AS count
   FROM valid
-  CROSS JOIN LATERAL jsonb_each(g->'added_by_status') AS each(key, value)
+  CROSS JOIN LATERAL jsonb_each(
+    CASE WHEN jsonb_typeof(g->'added_by_status') = 'object'
+         THEN g->'added_by_status' ELSE '{}'::jsonb END
+  ) AS each(key, value)
 )
 INSERT INTO public.game_added_status (game_id, status_key, count)
 SELECT game_id, status_key, count
@@ -320,27 +419,29 @@ def process_json_text(conn, json_text: str):
     with conn.cursor() as cur:
         cur.execute("BEGIN;")
         try:
-            for sql in [
-                SQL_DIM_ESRB,
-                SQL_DIM_PLATFORMS,
-                SQL_DIM_GENRES,
-                SQL_DIM_STORES,
-                SQL_DIM_TAGS,
-                SQL_GAMES,
-                SQL_GAME_PLATFORMS,
-                SQL_GAME_GENRES,
-                SQL_GAME_STORES,
-                SQL_GAME_TAGS,
-                SQL_GAME_RATINGS,
-                SQL_GAME_SCREENSHOTS,
-                SQL_GAME_ADDED_STATUS,
+            for name, sql in [
+                ("DIM_ESRB", SQL_DIM_ESRB),
+                ("DIM_PLATFORMS", SQL_DIM_PLATFORMS),
+                ("DIM_GENRES", SQL_DIM_GENRES),
+                ("DIM_STORES", SQL_DIM_STORES),
+                ("DIM_TAGS", SQL_DIM_TAGS),
+                ("GAMES", SQL_GAMES),
+                ("GAME_PLATFORMS", SQL_GAME_PLATFORMS),
+                ("GAME_GENRES", SQL_GAME_GENRES),
+                ("GAME_STORES", SQL_GAME_STORES),
+                ("GAME_TAGS", SQL_GAME_TAGS),
+                ("GAME_RATINGS", SQL_GAME_RATINGS),
+                ("GAME_SCREENSHOTS", SQL_GAME_SCREENSHOTS),
+                ("GAME_ADDED_STATUS", SQL_GAME_ADDED_STATUS),
             ]:
-                cur.execute(sql, (json_text,))
+                try:
+                    cur.execute(sql, (json_text,))
+                except Exception as e:
+                    raise RuntimeError(f"Fallo en SQL {name}") from e
             cur.execute("COMMIT;")
         except Exception:
             cur.execute("ROLLBACK;")
             raise
-
 
 def lambda_handler(event, context):
     keys = list_recent_keys()
