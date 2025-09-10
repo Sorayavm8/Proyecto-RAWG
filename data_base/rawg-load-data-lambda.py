@@ -43,9 +43,6 @@ def get_conn():
         ssl_context=True,
     )
 
-# =========================
-# SQLs (con blindaje de tipo)
-# =========================
 
 # Dimensiones
 SQL_DIM_ESRB = """
@@ -233,7 +230,7 @@ ON CONFLICT (game_id) DO UPDATE SET
   website            = EXCLUDED.website;
 """
 
-# Puentes N:M
+# Tablas puentes N:M
 SQL_GAME_PLATFORMS = """
 WITH payload AS (SELECT %s::jsonb AS j),
 games AS (
@@ -321,7 +318,7 @@ CROSS JOIN LATERAL jsonb_array_elements(
 ON CONFLICT DO NOTHING;
 """
 
-# Hijas 1:N
+# Tablas hijas 1:N
 SQL_GAME_RATINGS = """
 WITH payload AS (SELECT %s::jsonb AS j),
 games AS (
