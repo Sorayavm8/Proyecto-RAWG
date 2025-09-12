@@ -123,24 +123,29 @@ CREATE TABLE IF NOT EXISTS public.game_added_status (
 
 --USUARIOS extra de prueba y si no tiran con el Admin
 
--- Crear usuario para Soraya
 CREATE USER soraya WITH PASSWORD 'Soraya123!';
 CREATE USER lorenzo WITH PASSWORD 'Lorenzo123';
+CREATE USER joseph WITH PASSWORD 'Joseph123!';
 
 GRANT CONNECT ON DATABASE rawg_db TO soraya;
 GRANT CONNECT ON DATABASE rawg_db TO lorenzo;
+GRANT CONNECT ON DATABASE rawg_db TO joseph;
 
 GRANT USAGE ON SCHEMA public TO soraya;
 GRANT USAGE ON SCHEMA public TO lorenzo;
+GRANT USAGE ON SCHEMA public TO joseph;
 
 
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO soraya;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO lorenzo;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO joseph;
 
 -- Permisos
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO soraya;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO lorenzo;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO joseph;
 
 -- privilegios de lectura para futuros objetos
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO soraya;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO lorenzo;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO joseph;

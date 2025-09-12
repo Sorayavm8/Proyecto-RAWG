@@ -1,44 +1,44 @@
 import os, json, datetime, boto3
 import pg8000
 
-REGION     = os.environ.get("REGION", "eu-north-1")
-S3_BUCKET  = os.environ["S3_BUCKET"]
-S3_PREFIX  = os.environ.get("S3_PREFIX", "rawg")
-DAYS_BACK  = int(os.environ.get("DAYS_BACK", "2"))
-MAX_FILES  = int(os.environ.get("MAX_FILES", "20"))
+region       = os.environ.get("REGION", "eu-north-1")
+bucket_name  = os.environ["S3_BUCKET"]
+s3_prefix    = os.environ.get("S3_PREFIX", "rawg")
+days_back    = int(os.environ.get("DAYS_BACK", "2"))
+max_files    = int(os.environ.get("MAX_FILES", "20"))
 
-RDS_HOST   = os.environ["RDS_HOST"]
-RDS_DB     = os.environ["RDS_DB"]
-RDS_USER   = os.environ["RDS_USER"]
-RDS_PASS   = os.environ["RDS_PASSWORD"]
+db_host      = os.environ["RDS_HOST"]
+db_name      = os.environ["RDS_DB"]
+db_user      = os.environ["RDS_USER"]
+db_password  = os.environ["RDS_PASSWORD"]
 
-s3 = boto3.client("s3", region_name=REGION)
+s3 = boto3.client("s3", region_name=region)
 
-def list_recent_keys():
-    keys = []
+def get_recent_files():
+    files = []
     today = datetime.date.today()
-    for d in range(DAYS_BACK + 1):
+    for d in range(days_back + 1):
         day = today - datetime.timedelta(days=d)
-        prefix = f"{S3_PREFIX}/{day.isoformat()}/"
-        resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+        prefix = f"{s3_prefix}/{day.isoformat()}/"
+        resp = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
         for obj in resp.get("Contents", []):
             key = obj["Key"]
             if key.lower().endswith(".json"):
-                keys.append(key)
-            if len(keys) >= MAX_FILES:
-                return keys
-    return keys
+                files.append(key)
+            if len(files) >= max_files:
+                return files
+    return files
 
 def load_json_from_s3(key):
-    obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+    obj = s3.get_object(Bucket=bucket_name, Key=key)
     return obj["Body"].read().decode("utf-8")
 
-def get_conn():
+def get_connection():
     return pg8000.connect(
-        host=RDS_HOST,
-        database=RDS_DB,
-        user=RDS_USER,
-        password=RDS_PASS,
+        host=db_host,
+        database=db_name,
+        user=db_user,
+        password=db_password,
         port=5432,
         ssl_context=True,
     )
@@ -318,7 +318,7 @@ CROSS JOIN LATERAL jsonb_array_elements(
 ON CONFLICT DO NOTHING;
 """
 
-# Tablas hijas 1:N
+# Tablas Hijas 1:N
 SQL_GAME_RATINGS = """
 WITH payload AS (SELECT %s::jsonb AS j),
 games AS (
@@ -434,25 +434,39 @@ def process_json_text(conn, json_text: str):
                 try:
                     cur.execute(sql, (json_text,))
                 except Exception as e:
-                    raise RuntimeError(f"Fallo en SQL {name}") from e
+                    raise RuntimeError(f"Fallo en la consulta SQL {name}") from e
             cur.execute("COMMIT;")
         except Exception:
             cur.execute("ROLLBACK;")
             raise
 
 def lambda_handler(event, context):
-    keys = list_recent_keys()
-    if not keys:
+    files = []
+
+    # Pilla los ficheros de S3 si salta el trigger
+    if isinstance(event, dict) and "Records" in event:
+        for rec in event["Records"]:
+            if rec.get("eventSource") == "aws:s3":
+                b = rec["s3"]["bucket"]["name"]
+                k = rec["s3"]["object"]["key"]
+
+                if b == bucket_name and k.startswith(f"{s3_prefix}/") and k.endswith(".json"):
+                    files.append(k)
+
+    if not files:
+        files = get_recent_files()
+    if not files:
         return {"status": "no_files"}
 
-    conn = get_conn()
+    conn = get_connection()
     processed = []
     try:
-        for key in keys:
-            json_text = load_json_from_s3(key)
+        for file in files:
+            json_text = load_json_from_s3(file)
             process_json_text(conn, json_text)
-            processed.append(key)
+            processed.append(file)
     finally:
         conn.close()
 
     return {"status": "ok", "files_processed": processed}
+
