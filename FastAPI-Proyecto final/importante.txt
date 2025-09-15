@@ -1,1 +1,0 @@
-con esto se instala todo los recuros bien pip install -r "C:\Users\Joseph\Desktop\FastAPI-Proyecto final\requirements.txt" deben copiar la ruta del archivo y remplazarla por la mia.
