@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+pandas
+matplotlib
+seaborn
+sqlalchemy
+psycopg2-binary
+joblib
+transformers
+torch
+xgboost
+requests
