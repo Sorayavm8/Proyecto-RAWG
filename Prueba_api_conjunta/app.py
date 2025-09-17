@@ -136,38 +136,76 @@ LEFT JOIN (
 WHERE g.metacritic IS NOT NULL OR g.rating IS NOT NULL
 ORDER BY g.game_id;"""
 
+# Leer datos de la base
 df_visual = pd.read_sql_query(sql_visual, engine)
 df_genres = pd.read_sql("SELECT genre_id, name AS genre FROM public.genres", engine)
-df_exploded = df_visual.explode('genre_ids').merge(df_genres, left_on='genre_ids', right_on='genre_id', how='left')
+
+# Explode para genres y merge con nombres
+df_exploded = df_visual.explode('genre_ids').merge(
+    df_genres, left_on='genre_ids', right_on='genre_id', how='left'
+)
 df_copy_visual = df_exploded[['name', 'rating', 'genre']].copy()
 
+# Asegurar tipos correctos
+df_copy_visual['rating'] = pd.to_numeric(df_copy_visual['rating'], errors='coerce')
+df_copy_visual['genre'] = df_copy_visual['genre'].fillna("Unknown")
+
+# Submuestrear tabla para TAPAS (máx 50 filas)
+table_visual = df_copy_visual.head(50).astype(str)
+table_visual.columns = [str(c) for c in table_visual.columns]
+
+# Cargar modelo TAPAS
+model_name = "google/tapas-large-finetuned-wtq"
+tokenizer = TapasTokenizer.from_pretrained(model_name)
+model = TapasForQuestionAnswering.from_pretrained(model_name)
+
+# Función para obtener filas y agregación
+def get_rows_from_tapas(query):
+    inputs = tokenizer(table=table_visual, queries=[query], return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    pred_coords, pred_aggs = tokenizer.convert_logits_to_predictions(
+        inputs, outputs.logits, outputs.logits_aggregation
+    )
+    aggregation_map = {0: "NONE", 1: "SUM", 2: "AVERAGE", 3: "COUNT"}
+    agg = aggregation_map.get(pred_aggs[0], "NONE")
+    rows = [r for (r, c) in pred_coords[0]]
+    return rows, agg
+
+# Función para generar gráfico
+def plot_from_rows(query, rows, agg):
+    plt.figure(figsize=(10,6))
+    if not rows:
+        plt.text(0.5, 0.5, "No se reconoció ninguna pregunta", ha="center", va="center")
+        plt.axis("off")
+    else:
+        subset = df_copy_visual.iloc[rows]
+        if agg == "AVERAGE":
+            data = subset.groupby("genre")["rating"].mean().sort_values(ascending=False)
+            sns.barplot(x=data.values, y=data.index, palette="coolwarm")
+            plt.xlabel("Average Rating"); plt.ylabel("Genre")
+        elif agg == "COUNT":
+            data = subset["genre"].value_counts()
+            sns.barplot(x=data.values, y=data.index, palette="viridis")
+            plt.xlabel("Number of Games"); plt.ylabel("Genre")
+        else:
+            sns.barplot(x=subset["rating"], y=subset["genre"], palette="magma")
+            plt.xlabel("Rating"); plt.ylabel("Genre")
+    buf = io.BytesIO()
+    plt.tight_layout()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    plt.close()
+    return StreamingResponse(buf, media_type="image/png")
+
+# Modelo Pydantic para request
 class QuestionVisual(BaseModel):
     query: str | list[str]
 
+# Endpoint FastAPI
 @app.post("/ask-visual")
 def ask_visual(q: QuestionVisual):
     queries = q.query if isinstance(q.query, list) else [q.query]
-    plt.figure(figsize=(10,6))
-    handled = False
+    rows, agg = get_rows_from_tapas(queries[0])
+    return plot_from_rows(queries[0], rows, agg)
 
-    for query in queries:
-        query_lower = query.lower()
-        if "top 10" in query_lower and "género" in query_lower:
-            data = df_copy_visual["genre"].value_counts().head(10)
-            sns.barplot(x=data.values, y=data.index, palette="viridis")
-            plt.xlabel("Número de juegos"); plt.ylabel("Género"); plt.title("Top 10 géneros por número de juegos")
-            handled = True; break
-        elif "rating promedio por género" in query_lower:
-            data = df_copy_visual.groupby("genre")["rating"].mean().sort_values(ascending=False)
-            sns.barplot(x=data.values, y=data.index, palette="coolwarm")
-            plt.xlabel("Rating promedio"); plt.ylabel("Género"); plt.title("Rating promedio por género")
-            handled = True; break
-
-    if not handled:
-        plt.text(0.5, 0.5, "No se reconoció ninguna pregunta", ha="center", va="center")
-        plt.axis("off")
-
-    buf = io.BytesIO()
-    plt.tight_layout(); plt.savefig(buf, format="png")
-    buf.seek(0); plt.close()
-    return StreamingResponse(buf, media_type="image/png")
