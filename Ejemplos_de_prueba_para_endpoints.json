@@ -1,0 +1,129 @@
+// EJEMPLOS PARA PROBAR LOS ENDPOINT
+
+http://52.70.210.93:8000 
+http://52.70.210.93:8000/docs 
+
+
+// PREGUNTAS PARA PREDICT SUCCESS
+{
+  "rating": 4.2,
+  "added": 120,
+  "metacritic": 85,
+  "genre_ids": [4, 7],
+  "store_ids": [1, 2],
+  "platform_ids": [3],
+  "esrb_rating_id": 2
+}
+
+{ 
+  "rating": 4.5,
+  "added": 10000,
+  "metacritic": 82,
+  "genre_ids": [7],
+  "store_ids": [2],
+  "platform_ids": [5],
+  "esrb_rating_id": 4
+}
+
+{
+  "rating": 4.5,
+  "added": 100,
+  "metacritic": 85,
+  "genre_ids": [1, 2],
+  "store_ids": [1],
+  "platform_ids": [1, 2],
+  "esrb_rating_id": 3
+}
+
+{
+  "rating": 4.8,
+  "added": 2100,
+  "metacritic": 92,
+  "genre_ids": [1, 2],
+  "store_ids": [1],
+  "platform_ids": [1, 2],
+  "esrb_rating_id": 1
+}
+
+{
+  "rating": 2.0,
+  "added": 10,
+  "metacritic": 40,
+  "genre_ids": [7],
+  "store_ids": [2],
+  "platform_ids": [5],
+  "esrb_rating_id": 4
+}
+
+
+// PREGUNTAS PARA ASK-TEXT
+{
+  "query": "Which game has the highest metacritic score?"
+}// {respuesta correcta
+
+{
+  "query": "Which game has the lowest rating?"
+}
+//  respuesta correcta
+
+{
+  "query": "What is the average metacritic score of all games?"
+}
+//  respuesta correcta
+
+{
+  "query": "How many games have a rating higher than 4?"
+}
+//  respuesta incorrecta
+
+{
+  "query": "What is the name of the game with the lowest metacritic score?"
+}
+//  respuesta correcta
+
+{
+  "query": "Average rating for action genre"
+}
+//  respuesta correcta
+
+{
+  "query": "Which is the most popular game this month?"
+}
+// respuesta correcta
+
+{ 
+  "query": "Which game has the highest metacritic?" 
+}
+// respuesta correcta
+
+
+// PREGUNTAS PARA ASK-VISUAL
+{
+  "query": "Top 10 genres by number of games"
+}
+// respuesta correcta
+
+{
+  "query": "Average rating by genre"
+}
+// respuesta correcta
+
+{
+  "query": "How many games are there in each genre?"
+}
+// respuesta correcta
+
+{
+  "query": "Count of games in Action genre"
+}
+// respuesta correcta
+
+{
+"query": "Count of games in Sports and Action genres"
+}
+// respuesta correcta
+
+{
+"query": "Count of games in Sports and Action and Puzzle genres"
+}
+// respuesta correcta

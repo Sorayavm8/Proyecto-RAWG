@@ -87,16 +87,45 @@ LEFT JOIN (
 ) p ON p.game_id = g.game_id
 ORDER BY g.game_id;
 """
-
+cols = ["name", "metacritic", "rating", "genre_ids"] # dejo columnas mas simples sin arrays y rinde peor
 df = pd.read_sql_query(sql, engine)
-df_copy = df[["name", "metacritic", "rating"]].head(200).reset_index(drop=True)
-table = df_copy.astype(str).fillna("")
-table.columns = [str(c) for c in table.columns]
+df_copy = df[cols].head(200).reset_index(drop=True).copy() # limitar columnas al modelo a 100 porque si no da peor rendimiento o puede petar
+table = df_copy.astype(str).fillna("")   # esto es lo que vamos a pasar al pipeline libre de nans y todo a string
+assert table.shape[0] > 0 and table.shape[1] > 0, f"Tabla vacia: shape={table.shape}" # check de seguridad por si la tabla se queda vacia
+#table = table.head(100).reset_index(drop=True)   # recorta mas si hace falta la tabla si da error
+table.columns = [str(c) for c in table.columns] # parseo a strings extra por si nombres de columnas no lo son.
 
 # TAPAS
 model_name = "google/tapas-large-finetuned-wtq"
 tokenizer = TapasTokenizer.from_pretrained(model_name)
 model = TapasForQuestionAnswering.from_pretrained(model_name)
+
+# --- preparar DF numérico paralelo ---
+df_num = df_copy.copy()
+df_num["metacritic"] = pd.to_numeric(df_num["metacritic"], errors="coerce")
+df_num["rating"] = pd.to_numeric(df_num["rating"], errors="coerce")
+
+def _choose_avg_column(query: str, coords: list[tuple[int,int]] | None) -> str:
+    """
+    Elige la columna a promediar:
+    1) por palabra clave en la pregunta,
+    2) si no, por las celdas seleccionadas por TAPAS,
+    3) si no, default 'metacritic'.
+    """
+    ql = query.lower()
+    if "metacritic" in ql:
+        return "metacritic"
+    if "rating" in ql:
+        return "rating"
+
+    if coords:
+        cols_in_coords = [table.columns[c] for (_, c) in coords]
+        # prioriza columnas numéricas si están en coords
+        for cand in ("metacritic", "rating"):
+            if cand in cols_in_coords:
+                return cand
+
+    return "metacritic"  # default sensato
 
 class QuestionText(BaseModel):
     query: str
@@ -111,21 +140,46 @@ def ask_text(q: QuestionText):
     )
     aggregation_map = {0: "NONE", 1: "SUM", 2: "AVERAGE", 3: "COUNT"}
     agg = aggregation_map.get(pred_aggs[0], "UNKNOWN")
-    rows = [r for (r, c) in pred_coords[0]]
+    coords = pred_coords[0] or []
 
-    if not rows:
+    if not coords and agg == "NONE":
         return {"answer": "No se ha encontrado respuesta", "aggregation": agg}
 
     if agg == "AVERAGE":
-        value = round(pd.to_numeric(df_copy.loc[rows, "rating"], errors="coerce").mean(), 2)
-        return {"answer": value, "aggregation": agg}
-    elif agg == "COUNT":
-        value = len(rows)
-        return {"answer": value, "aggregation": agg}
-    else:
-        answers = [table.iat[r, c] for (r, c) in pred_coords[0]]
-        return {"answer": answers, "aggregation": agg}
+        target_col = _choose_avg_column(q.query, coords)
 
+        # Si TAPAS marcó celdas de esa columna, promedia esas; si no, promedia toda la columna
+        rows_for_target = [r for (r, c) in coords if table.columns[c] == target_col]
+        if rows_for_target:
+            values = df_num.loc[rows_for_target, target_col]
+        else:
+            values = df_num[target_col]
+
+        value = round(values.mean(), 2)
+        return {
+            "query": q.query,
+            "answer": value,
+            "aggregation": agg,
+            "column": target_col,
+            "method": "tapas+heuristics"
+        }
+
+    elif agg == "COUNT":
+        # cuenta filas ÚNICAS implicadas (evita sobreconteos)
+        unique_rows = sorted({r for (r, c) in coords})
+        value = len(unique_rows)
+        return {
+            "query": q.query,
+            "answer": value,
+            "aggregation": agg,
+            "selected_rows_count": value,
+            "method": "tapas (dedup rows)"
+        }
+
+    else:
+        answers = [table.iat[r, c] for (r, c) in coords]
+        return {"query": q.query, "answer": answers, "aggregation": agg, "method": "tapas"}
+    
 # ----------------- ENDPOINT /ask-visual -----------------
 sql_visual = """SELECT g.*, COALESCE(ge.genre_ids, ARRAY[]::int[]) AS genre_ids
 FROM public.games g
@@ -144,14 +198,16 @@ df_genres = pd.read_sql("SELECT genre_id, name AS genre FROM public.genres", eng
 df_exploded = df_visual.explode('genre_ids').merge(
     df_genres, left_on='genre_ids', right_on='genre_id', how='left'
 )
-df_copy_visual = df_exploded[['name', 'rating', 'genre']].copy()
 
-# Asegurar tipos correctos
-df_copy_visual['rating'] = pd.to_numeric(df_copy_visual['rating'], errors='coerce')
-df_copy_visual['genre'] = df_copy_visual['genre'].fillna("Unknown")
+# Copiar solo columnas relevantes
+df_copy_visual = df_exploded[['name', 'rating', 'genre', "added"]].copy()
 
-# Submuestrear tabla para TAPAS (máx 50 filas)
-table_visual = df_copy_visual.head(50).astype(str)
+# Submuestrear filas para evitar problemas con modelos
+df_copy_visual = df_copy_visual.head(100)
+
+# Limpiar y convertir a strings
+table_visual = df_copy_visual.astype(str).fillna("")
+assert table_visual.shape[0] > 0 and table_visual.shape[1] > 0, f"Tabla vacia: shape={table_visual.shape}"
 table_visual.columns = [str(c) for c in table_visual.columns]
 
 # Cargar modelo TAPAS
@@ -173,7 +229,7 @@ def get_rows_from_tapas(query):
     return rows, agg
 
 # Función para generar gráfico
-def plot_from_rows(query, rows, agg):
+def plot_from_rows(query, rows, agg, target_col=None):
     plt.figure(figsize=(10,6))
     if not rows:
         plt.text(0.5, 0.5, "No se reconoció ninguna pregunta", ha="center", va="center")
@@ -181,22 +237,25 @@ def plot_from_rows(query, rows, agg):
     else:
         subset = df_copy_visual.iloc[rows]
         if agg == "AVERAGE":
-            data = subset.groupby("genre")["rating"].mean().sort_values(ascending=False)
+            col = target_col or "rating"  # fallback si no se pasa
+            data = subset.groupby("genre")[col].mean().sort_values(ascending=False)
             sns.barplot(x=data.values, y=data.index, palette="coolwarm")
-            plt.xlabel("Average Rating"); plt.ylabel("Genre")
+            plt.xlabel(f"Average {col.capitalize()}"); plt.ylabel("Genre")
         elif agg == "COUNT":
             data = subset["genre"].value_counts()
             sns.barplot(x=data.values, y=data.index, palette="viridis")
             plt.xlabel("Number of Games"); plt.ylabel("Genre")
         else:
-            sns.barplot(x=subset["rating"], y=subset["genre"], palette="magma")
-            plt.xlabel("Rating"); plt.ylabel("Genre")
+            col = target_col or "rating"
+            sns.barplot(x=subset[col], y=subset["genre"], palette="magma")
+            plt.xlabel(col.capitalize()); plt.ylabel("Genre")
     buf = io.BytesIO()
     plt.tight_layout()
     plt.savefig(buf, format="png")
     buf.seek(0)
     plt.close()
     return StreamingResponse(buf, media_type="image/png")
+
 
 # Modelo Pydantic para request
 class QuestionVisual(BaseModel):
