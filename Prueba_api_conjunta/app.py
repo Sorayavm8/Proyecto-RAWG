@@ -9,6 +9,8 @@ import pickle
 import torch
 from sqlalchemy import create_engine
 from transformers import TapasTokenizer, TapasForQuestionAnswering
+from dotenv import load_dotenv
+import os
 
 # ----------------- INICIALIZAR APP -----------------
 app = FastAPI(
@@ -18,10 +20,16 @@ app = FastAPI(
 )
 
 # ----------------- CONEXIÓN A BASE DE DATOS -----------------
-host = "rawg-db.c5gics8qchki.eu-north-1.rds.amazonaws.com"
-user = "rawg_admin"
-password = "Patata123!"
-database = "rawg_db"
+load_dotenv()  # Carga las variables del archivo .env
+
+host = os.getenv("DB_HOST")
+user = os.getenv("DB_USER")
+password = os.getenv("DB_PASSWORD")
+database = os.getenv("DB_NAME")
+
+if not all([host, user, password, database]):
+    raise RuntimeError("Faltan variables de entorno de la base de datos en .env")
+
 
 engine = create_engine(f"postgresql+psycopg2://{user}:{password}@{host}/{database}")
 
