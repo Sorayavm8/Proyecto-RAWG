@@ -51,16 +51,34 @@ Ejecutar la API: uvicorn app:app --reload
 
 ## Requisitos
 Python 3.11+
+
 fastapi
+
 uvicorn
+
 pandas
+
 matplotlib
+
 seaborn
+
 torch
+
 transformers
+
 sqlalchemy
+
 psycopg2-binary
+
 python-dotenv
+
+AWS Lambda
+
+AWS EC2
+
+AWS RDS
+
+Amazon EventBridge
 
 ## Ejemplos de uso
 
